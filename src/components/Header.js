@@ -98,12 +98,7 @@ const Header = () => {
       </LeftSection>
       
       <RightSection>
-        <CartInfo>
-          <CartIcon />
-          <CartText>
-            {getCartItemCount()} items - ${getCartTotal().toFixed(2)}
-          </CartText>
-        </CartInfo>
+       
         
         <UserSection>
           <div style={{ 

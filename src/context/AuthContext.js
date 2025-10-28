@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import { authAPI } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -45,17 +46,20 @@ export const AuthProvider = ({ children }) => {
 
   // Check for existing session on app load
   useEffect(() => {
-    const checkAuth = () => {
+    const checkAuth = async () => {
       try {
-        const savedUser = localStorage.getItem('pos_user');
-        const savedRole = localStorage.getItem('pos_role');
+        const token = localStorage.getItem('token');
         
-        if (savedUser && savedRole) {
+        if (token) {
+          // Verify token with backend
+          const response = await authAPI.getCurrentUser();
+          const user = response.data.user;
+          
           dispatch({
             type: 'LOGIN_SUCCESS',
             payload: {
-              user: JSON.parse(savedUser),
-              role: savedRole
+              user,
+              role: user.role
             }
           });
         } else {
@@ -63,6 +67,9 @@ export const AuthProvider = ({ children }) => {
         }
       } catch (error) {
         console.error('Auth check error:', error);
+        // Clear invalid token
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
@@ -70,61 +77,62 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, []);
 
-  const login = (username, password, role) => {
-    // Mock authentication - in real app, this would be an API call
-    const validCredentials = {
-      admin: { username: 'admin', password: 'admin123' },
-      cashier: { username: 'cashier', password: 'cashier123' }
-    };
-
-    if (validCredentials[role] && 
-        validCredentials[role].username === username && 
-        validCredentials[role].password === password) {
+  const login = async (username, password) => {
+    try {
+      const response = await authAPI.login({ username, password });
+      const { token, user } = response.data;
       
-      // Clear any existing data first
-      localStorage.removeItem('pos_user');
-      localStorage.removeItem('pos_role');
+      // Save token and user data
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      
+      // Clear any existing cart/sales data
       localStorage.removeItem('pos_cart');
       localStorage.removeItem('pos_sales');
       
-      const user = { username, role };
-      
-      // Save to localStorage
-      localStorage.setItem('pos_user', JSON.stringify(user));
-      localStorage.setItem('pos_role', role);
-      
       dispatch({
         type: 'LOGIN_SUCCESS',
-        payload: { user, role }
+        payload: { user, role: user.role }
       });
       
       return { success: true };
-    } else {
-      return { success: false, error: 'Invalid credentials' };
+    } catch (error) {
+      console.error('Login error:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.error || 'Login failed' 
+      };
     }
   };
 
-  const logout = () => {
-    // Clear all localStorage items
-    localStorage.removeItem('pos_user');
-    localStorage.removeItem('pos_role');
-    
-    // Clear any other potential cached data
-    localStorage.removeItem('pos_cart');
-    localStorage.removeItem('pos_sales');
-    
-    // Reset to initial state
-    dispatch({ type: 'LOGOUT' });
-    
-    // Force a page reload to ensure clean state
-    window.location.reload();
+  const logout = async () => {
+    try {
+      // Call logout API
+      await authAPI.logout();
+    } catch (error) {
+      console.error('Logout API error:', error);
+    } finally {
+      // Clear all localStorage items
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      
+      // Clear any other potential cached data
+      localStorage.removeItem('pos_cart');
+      localStorage.removeItem('pos_sales');
+      
+      // Reset to initial state
+      dispatch({ type: 'LOGOUT' });
+      
+      // Force a page reload to ensure clean state
+      window.location.reload();
+    }
   };
 
   const hasPermission = (permission) => {
     if (!state.role) return false;
     
     const permissions = {
-      admin: ['view_dashboard', 'manage_products', 'view_sales', 'view_reports', 'manage_settings', 'process_sales'],
+      admin: ['view_dashboard', 'manage_products', 'view_reports', 'manage_settings'],
       cashier: ['process_sales', 'view_sales']
     };
     

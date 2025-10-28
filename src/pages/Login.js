@@ -173,8 +173,7 @@ const DemoItem = styled.div`
 const Login = () => {
   const [formData, setFormData] = useState({
     username: '',
-    password: '',
-    role: 'cashier'
+    password: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -194,12 +193,16 @@ const Login = () => {
     setLoading(true);
     setError('');
 
-    const result = login(formData.username, formData.password, formData.role);
-    
-    if (result.success) {
-      // Login successful, redirect will happen automatically
-    } else {
-      setError(result.error);
+    try {
+      const result = await login(formData.username, formData.password);
+      
+      if (result.success) {
+        // Login successful, redirect will happen automatically
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Login failed. Please try again.');
     }
     
     setLoading(false);
@@ -246,14 +249,6 @@ const Login = () => {
             />
           </InputGroup>
           
-          <Select
-            name="role"
-            value={formData.role}
-            onChange={handleChange}
-          >
-            <option value="cashier">Cashier</option>
-            <option value="admin">Admin</option>
-          </Select>
           
           <LoginButton type="submit" disabled={loading}>
             {loading ? 'Signing In...' : 'Sign In'}
@@ -261,7 +256,6 @@ const Login = () => {
           
           {error && <ErrorMessage>{error}</ErrorMessage>}
         </Form>
-        
 
       </LoginCard>
     </LoginContainer>

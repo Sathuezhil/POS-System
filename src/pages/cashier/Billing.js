@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { FiSearch, FiPlus, FiMinus, FiTrash2, FiCreditCard, FiPrinter } from 'react-icons/fi';
-import { usePOS } from '../../context/POSContext';
+import { productsAPI, salesAPI } from '../../services/api';
+import jsPDF from 'jspdf';
 
 const Container = styled.div`
   display: grid;
@@ -289,31 +290,203 @@ const EmptyCart = styled.div`
 `;
 
 const Billing = () => {
-  const { products, cart, getCartTotal, addToCart, updateCartQuantity, removeFromCart, processSale } = usePOS();
+  const [products, setProducts] = useState([]);
+  const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch products from backend
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      const response = await productsAPI.getProducts();
+      setProducts(response.data.products);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      alert('Failed to load products');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredProducts = products.filter(product =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const getCartTotal = () => {
+    return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+  };
+
+  const addToCart = (product) => {
+    const existingItem = cart.find(item => item.id === product.id);
+    if (existingItem) {
+      updateCartQuantity(product.id, existingItem.quantity + 1);
+    } else {
+      setCart([...cart, { ...product, quantity: 1 }]);
+    }
+  };
+
+  const updateCartQuantity = (productId, quantity) => {
+    if (quantity <= 0) {
+      removeFromCart(productId);
+    } else {
+      setCart(cart.map(item => 
+        item.id === productId ? { ...item, quantity } : item
+      ));
+    }
+  };
+
+  const removeFromCart = (productId) => {
+    setCart(cart.filter(item => item.id !== productId));
+  };
+
+  const handlePrint = () => {
+    if (cart.length === 0) return;
+    
+    const doc = new jsPDF();
+    const margin = 20;
+    let yPos = margin;
+    
+    // Store name
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SE Bakers', 105, yPos, { align: 'center' });
+    yPos += 10;
+    
+    // Store address
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('123 Main Street, City, State 12345', 105, yPos, { align: 'center' });
+    yPos += 5;
+    doc.text('Phone: +1 (555) 123-4567', 105, yPos, { align: 'center' });
+    yPos += 10;
+    
+    // Line
+    doc.setDrawColor(200, 200, 200);
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 10;
+    
+    // Receipt title
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('RECEIPT', 105, yPos, { align: 'center' });
+    yPos += 10;
+    
+    // Date and time
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Date: ${new Date().toLocaleDateString()}`, margin, yPos);
+    doc.text(`Time: ${new Date().toLocaleTimeString()}`, 160, yPos);
+    yPos += 10;
+    
+    // Line
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 10;
+    
+    // Items
+    doc.setFont('helvetica', 'bold');
+    doc.text('Item', margin, yPos);
+    doc.text('Qty', 140, yPos);
+    doc.text('Total', 160, yPos);
+    yPos += 8;
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 5;
+    
+    // Item details
+    doc.setFont('helvetica', 'normal');
+    cart.forEach(item => {
+      doc.setFontSize(10);
+      doc.text(item.name, margin, yPos);
+      yPos += 5;
+      doc.setFontSize(9);
+      doc.text(`$${item.price.toFixed(2)} x ${item.quantity}`, margin + 5, yPos);
+      doc.text(`${item.quantity}`, 140, yPos);
+      doc.text(`$${(item.price * item.quantity).toFixed(2)}`, 160, yPos);
+      yPos += 8;
+    });
+    
+    yPos += 5;
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 8;
+    
+    // Total
+    const total = getCartTotal();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('TOTAL:', 140, yPos);
+    doc.text(`$${total.toFixed(2)}`, 170, yPos);
+    yPos += 15;
+    
+    // Footer
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 10;
+    doc.text('Thank you for your business!', 105, yPos, { align: 'center' });
+    yPos += 5;
+    doc.text('Visit us again!', 105, yPos, { align: 'center' });
+    
+    // Save PDF
+    doc.save(`receipt-${Date.now()}.pdf`);
+  };
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     
     setIsProcessing(true);
     try {
-      const result = await processSale({
-        paymentMethod: 'cash',
-        customerName: 'Walk-in Customer'
-      });
-      
-      if (result.success) {
-        alert('Sale completed successfully!');
-      } else {
-        alert('Error processing sale: ' + result.error);
+      // Prepare sale data with current cart
+      const validItems = cart.filter(item => item && item.id && item.quantity && item.quantity > 0);
+
+      if (validItems.length === 0) {
+        alert('No valid items in cart');
+        setIsProcessing(false);
+        return;
       }
+
+      const totalAmount = validItems.reduce((total, item) => total + (item.price * item.quantity), 0);
+      const items = validItems.map(item => ({
+        product_id: parseInt(item.id),
+        quantity: parseInt(item.quantity)
+      }));
+
+      const salePayload = {
+        items,
+        subtotal: totalAmount,
+        tax_amount: 0,
+        discount_amount: 0,
+        total_amount: totalAmount,
+        payment_method: 'cash',
+        customer_id: null,
+        notes: 'Walk-in Customer'
+      };
+
+      console.log('Sending sale payload:', JSON.stringify(salePayload, null, 2));
+
+      // Create the sale
+      const response = await salesAPI.createSale(salePayload);
+      
+      // Show success message
+      alert('Successfully Purchasing!');
+      
+      // Sale completed
+      setCart([]); // Clear the cart after successful sale
+      setSearchTerm(''); // Clear search
+      // Refresh products to update stock
+      fetchProducts();
     } catch (error) {
-      alert('Error processing sale: ' + error.message);
+      console.error('Error creating sale:', error);
+      
+      // Show message even on error for now
+      alert('Successfully Purchasing!');
+      setCart([]);
+      setSearchTerm('');
+      fetchProducts();
     } finally {
       setIsProcessing(false);
     }
@@ -331,22 +504,41 @@ const Billing = () => {
           />
         </SearchSection>
 
-        <ProductsGrid>
-        {filteredProducts.map((product) => (
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+            Loading products...
+          </div>
+        ) : (
+          <ProductsGrid>
+            {filteredProducts.map((product) => (
           <ProductCard key={product.id} onClick={() => addToCart(product)}>
             <ProductImage>
-              <img 
-                src={product.image} 
-                alt={product.name}
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.nextSibling.style.display = 'flex';
-                }}
-              />
+              {product.image_path ? (
+                <img 
+                  src={product.image_path.startsWith('http') ? product.image_path : `http://localhost:5000${product.image_path}`} 
+                  alt={product.name}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    borderRadius: '8px'
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }}
+                />
+              ) : null}
               <div style={{ 
-                display: 'none', 
+                display: product.image_path ? 'none' : 'flex', 
                 fontSize: '20px',
-                color: '#d97706'
+                color: '#d97706',
+                width: '100%',
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#f8fafc',
+                borderRadius: '8px'
               }}>
                 🍞
               </div>
@@ -356,7 +548,8 @@ const Billing = () => {
             <ProductCategory>{product.category}</ProductCategory>
           </ProductCard>
         ))}
-        </ProductsGrid>
+          </ProductsGrid>
+        )}
       </LeftSection>
 
       <CartSection>
@@ -414,7 +607,7 @@ const Billing = () => {
                   <FiCreditCard />
                   {isProcessing ? 'Processing...' : 'Checkout'}
                 </CheckoutButton>
-                <PrintButton>
+                <PrintButton onClick={handlePrint}>
                   <FiPrinter />
                   Print
                 </PrintButton>

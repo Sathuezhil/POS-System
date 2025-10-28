@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { FiDownload, FiFilter, FiCalendar, FiTrendingUp } from 'react-icons/fi';
-import { usePOS } from '../../context/POSContext';
+import { salesAPI } from '../../services/api';
 
 const Container = styled.div`
   padding: 24px;
@@ -167,10 +167,45 @@ const AmountCell = styled.div`
 `;
 
 const SalesReport = () => {
-  const { sales } = usePOS();
+  const [sales, setSales] = useState([]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [cashierFilter, setCashierFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  useEffect(() => {
+    fetchSales();
+    
+    // Auto-refresh every 5 seconds
+    const interval = setInterval(() => {
+      fetchSales();
+      setLastRefresh(new Date());
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchSales = async () => {
+    try {
+      const response = await salesAPI.getSales({ page: 1, limit: 1000 });
+      const salesData = response.data.sales.map(sale => ({
+        id: sale.id,
+        sale_number: sale.sale_number,
+        timestamp: sale.created_at,
+        items: [],
+        total: sale.total_amount,
+        customer: sale.customer_name || 'Walk-in',
+        cashier: sale.cashier_name || 'Unknown'
+      }));
+      setSales(salesData);
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error('Error fetching sales:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleExportToExcel = () => {
     // Create CSV content

@@ -106,16 +106,6 @@ const template = [
 const menu = Menu.buildFromTemplate(template);
 Menu.setApplicationMenu(menu);
 
-// IPC handlers for POS functionality
-ipcMain.handle('get-products', async () => {
-  // Return mock products - replace with actual database call
-  return [
-    { id: 1, name: 'Coffee', price: 2.50, category: 'Beverages' },
-    { id: 2, name: 'Sandwich', price: 5.99, category: 'Food' },
-    { id: 3, name: 'Cake', price: 3.50, category: 'Dessert' }
-  ];
-});
-
 ipcMain.handle('save-sale', async (event, saleData) => {
   // Save sale to database
   console.log('Saving sale:', saleData);
