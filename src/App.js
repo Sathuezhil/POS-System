@@ -11,9 +11,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 // Admin Pages
 import AdminDashboard from './pages/admin/Dashboard';
 import ProductManagement from './pages/admin/ProductManagement';
-import UserManagement from './pages/admin/UserManagement';
 import SalesReport from './pages/admin/SalesReport';
-import Settings from './pages/admin/Settings';
 
 // Cashier Pages
 import Billing from './pages/cashier/Billing';
@@ -115,21 +113,12 @@ const AppContent = () => {
                 <ProductManagement />
               </ProtectedRoute>
             } />
-            <Route path="/admin/users" element={
-              <ProtectedRoute permission="manage_settings">
-                <UserManagement />
-              </ProtectedRoute>
-            } />
             <Route path="/admin/reports" element={
               <ProtectedRoute permission="view_reports">
                 <SalesReport />
               </ProtectedRoute>
             } />
-            <Route path="/admin/settings" element={
-              <ProtectedRoute permission="manage_settings">
-                <Settings />
-              </ProtectedRoute>
-            } />
+            {/* Settings page removed as per requirements */}
             
             {/* Cashier Routes */}
             <Route path="/cashier/billing" element={

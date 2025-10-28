@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { FiFilter, FiDownload, FiEye, FiPrinter, FiCalendar } from 'react-icons/fi';
-import { usePOS } from '../../context/POSContext';
+import { salesAPI } from '../../services/api';
+import jsPDF from 'jspdf';
 
 const Container = styled.div`
   padding: 24px;
@@ -183,8 +184,162 @@ const StatLabel = styled.div`
 `;
 
 const SalesHistory = () => {
-  const { sales } = usePOS();
+  const [sales, setSales] = useState([]);
   const [filter, setFilter] = useState('today');
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  useEffect(() => {
+    fetchSales();
+    
+    // Auto-refresh every 5 seconds
+    const interval = setInterval(() => {
+      fetchSales();
+      setLastRefresh(new Date());
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchSales = async () => {
+    try {
+      const response = await salesAPI.getSales({ page: 1, limit: 1000 });
+      
+      // Fetch details for each sale to get items
+      const salesData = await Promise.all(
+        response.data.sales.map(async (sale) => {
+          try {
+            const detailResponse = await salesAPI.getSale(sale.id);
+            const items = detailResponse.data.items || [];
+            return {
+              id: sale.id,
+              sale_number: sale.sale_number,
+              timestamp: sale.created_at,
+              items: items,
+              itemCount: items.length,
+              total: sale.total_amount,
+              customer: sale.customer_name || 'Walk-in',
+              cashier: sale.cashier_name || 'Unknown'
+            };
+          } catch (error) {
+            console.error(`Error fetching details for sale ${sale.id}:`, error);
+            return {
+              id: sale.id,
+              sale_number: sale.sale_number,
+              timestamp: sale.created_at,
+              items: [],
+              itemCount: 0,
+              total: sale.total_amount,
+              customer: sale.customer_name || 'Walk-in',
+              cashier: sale.cashier_name || 'Unknown'
+            };
+          }
+        })
+      );
+      
+      setSales(salesData);
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error('Error fetching sales:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePrint = (sale) => {
+    const doc = new jsPDF();
+    const margin = 20;
+    let yPos = margin;
+    
+    // Store name
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SE Bakers', 105, yPos, { align: 'center' });
+    yPos += 10;
+    
+    // Store address
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('123 Main Street, City, State 12345', 105, yPos, { align: 'center' });
+    yPos += 5;
+    doc.text('Phone: +1 (555) 123-4567', 105, yPos, { align: 'center' });
+    yPos += 10;
+    
+    // Line
+    doc.setDrawColor(200, 200, 200);
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 10;
+    
+    // Receipt title
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('RECEIPT', 105, yPos, { align: 'center' });
+    yPos += 10;
+    
+    // Sale number
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Sale #: ${sale.sale_number}`, margin, yPos);
+    yPos += 5;
+    doc.text(`Date: ${new Date(sale.timestamp).toLocaleDateString()}`, margin, yPos);
+    doc.text(`Time: ${new Date(sale.timestamp).toLocaleTimeString()}`, 160, yPos);
+    yPos += 10;
+    
+    // Line
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 10;
+    
+    // Items
+    doc.setFont('helvetica', 'bold');
+    doc.text('Item', margin, yPos);
+    doc.text('Qty', 140, yPos);
+    doc.text('Total', 160, yPos);
+    yPos += 8;
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 5;
+    
+    // Item details
+    if (sale.items && sale.items.length > 0) {
+      sale.items.forEach(item => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.text(item.product_name || 'Item', margin, yPos);
+        yPos += 5;
+        doc.setFontSize(9);
+        doc.text(`$${item.unit_price.toFixed(2)} x ${item.quantity}`, margin + 5, yPos);
+        doc.text(`${item.quantity}`, 140, yPos);
+        doc.text(`$${item.total_price.toFixed(2)}`, 160, yPos);
+        yPos += 8;
+      });
+    } else {
+      doc.setFontSize(10);
+      doc.text('Items not available', margin, yPos);
+      yPos += 8;
+    }
+    
+    yPos += 5;
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 8;
+    
+    // Total
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('TOTAL:', 140, yPos);
+    doc.text(`$${sale.total.toFixed(2)}`, 170, yPos);
+    yPos += 15;
+    
+    // Footer
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.line(margin, yPos, 190, yPos);
+    yPos += 10;
+    doc.text('Thank you for your business!', 105, yPos, { align: 'center' });
+    yPos += 5;
+    doc.text('Visit us again!', 105, yPos, { align: 'center' });
+    
+    // Save PDF
+    doc.save(`receipt-${sale.sale_number}.pdf`);
+  };
 
   const handleExport = () => {
     const csvContent = [
@@ -294,10 +449,10 @@ const SalesHistory = () => {
               {filteredSales.map((sale) => (
                 <TableRow key={sale.id}>
                   <TableCell>
-                    <SaleId>#{sale.id}</SaleId>
+                    <SaleId>{sale.sale_number || `#${sale.id}`}</SaleId>
                   </TableCell>
                   <TableCell>{formatDate(sale.timestamp)}</TableCell>
-                  <TableCell>{sale.items.length} items</TableCell>
+                  <TableCell>{sale.itemCount !== undefined ? sale.itemCount : sale.items.length} items</TableCell>
                   <TableCell>
                     <Amount>${sale.total.toFixed(2)}</Amount>
                   </TableCell>
@@ -308,7 +463,7 @@ const SalesHistory = () => {
                     <ActionButton title="View Details">
                       <FiEye size={16} />
                     </ActionButton>
-                    <ActionButton title="Reprint">
+                    <ActionButton title="Reprint" onClick={() => handlePrint(sale)}>
                       <FiPrinter size={16} />
                     </ActionButton>
                   </TableCell>

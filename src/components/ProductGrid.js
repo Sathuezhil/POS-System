@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { usePOS } from '../context/POSContext';
+import { productsAPI } from '../services/api';
 
 const GridContainer = styled.div`
   display: grid;
@@ -88,33 +88,78 @@ const AddButton = styled.button`
   }
 `;
 
-const ProductGrid = () => {
-  const { products, addToCart } = usePOS();
+const ProductGrid = ({ onAddToCart }) => {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      const response = await productsAPI.getProducts();
+      setProducts(response.data.products);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addToCart = (product) => {
+    if (onAddToCart) {
+      onAddToCart(product);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+        Loading products...
+      </div>
+    );
+  }
 
   return (
     <GridContainer>
         {products.map((product) => (
           <ProductCard key={product.id} onClick={() => addToCart(product)}>
             <ProductImage>
-              <img 
-                src={product.image} 
-                alt={product.name}
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.nextSibling.style.display = 'flex';
-                }}
-              />
+              {product.image_path ? (
+                <img 
+                  src={product.image_path.startsWith('http') ? product.image_path : `http://localhost:5000${product.image_path}`} 
+                  alt={product.name}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    borderRadius: '8px'
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }}
+                />
+              ) : null}
               <div style={{ 
-                display: 'none', 
+                display: product.image_path ? 'none' : 'flex', 
                 fontSize: '24px',
-                color: '#d97706'
+                color: '#d97706',
+                width: '100%',
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#f8fafc',
+                borderRadius: '8px'
               }}>
                 🍞
               </div>
             </ProductImage>
             <ProductName>{product.name}</ProductName>
             <ProductPrice>${product.price.toFixed(2)}</ProductPrice>
-            <ProductCategory>{product.category}</ProductCategory>
+            <ProductCategory>{product.category_name || product.category || 'No Category'}</ProductCategory>
             <AddButton>Add to Cart</AddButton>
           </ProductCard>
         ))}

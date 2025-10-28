@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { FiPlus, FiEdit, FiTrash2, FiSearch, FiFilter, FiX, FiSave } from 'react-icons/fi';
-import { usePOS } from '../../context/POSContext';
+import { productsAPI, uploadAPI } from '../../services/api';
 
 const Container = styled.div`
   padding: 24px;
@@ -101,15 +101,23 @@ const ProductCard = styled.div`
 `;
 
 const ProductImage = styled.div`
-  width: 60px;
-  height: 60px;
+  width: 80px;
+  height: 80px;
   margin: 0 auto 12px;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
   background: #f8fafc;
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 2px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
   
   img {
     width: 100%;
@@ -331,9 +339,10 @@ const SaveButton = styled.button`
 `;
 
 const ProductManagement = () => {
-  const { products, addProduct, updateProduct, deleteProduct } = usePOS();
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -343,14 +352,105 @@ const ProductManagement = () => {
     price: '',
     category: '',
     stock: '',
-    image: ''
+    image: '',
+    imagePath: '',
+    selectedFile: null
   });
 
-  const categories = ['all', ...new Set(products.map(p => p.category))];
+  // Fetch products from backend
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      // Add cache-busting parameter to ensure fresh data
+      const response = await productsAPI.getProducts({ _t: Date.now() });
+      setProducts(response.data.products);
+      console.log('📦 Products fetched:', response.data.products.length);
+      response.data.products.forEach(product => {
+        console.log(`  - ${product.name}: ${product.image_path ? 'Has image' : 'No image'}`);
+        if (product.image_path) {
+          console.log(`    Image URL: http://localhost:5000${product.image_path}`);
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      alert('Failed to load products');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImageSelect = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Check if file is an image
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+      
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB');
+        return;
+      }
+      
+      // Clean up previous object URL to prevent memory leaks
+      if (formData.image && formData.image.startsWith('blob:')) {
+        URL.revokeObjectURL(formData.image);
+      }
+      
+      // Create immediate preview URL
+      const previewUrl = URL.createObjectURL(file);
+      
+      // Update form data immediately for preview
+      setFormData(prev => ({
+        ...prev, 
+        image: previewUrl, 
+        selectedFile: file,
+        imagePath: '' // Clear previous image path
+      }));
+      
+      try {
+        // Create FormData for upload
+        const uploadFormData = new FormData();
+        uploadFormData.append('image', file);
+        
+        // Upload image to backend
+        const response = await uploadAPI.uploadImage(uploadFormData);
+        const imagePath = response.data.filePath;
+        
+        // Update with backend URL while keeping the preview
+        setFormData(prev => ({
+          ...prev, 
+          image: imagePath.startsWith('http') ? imagePath : `http://localhost:5000${imagePath}`, 
+          imagePath: imagePath
+        }));
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        alert('Failed to upload image');
+        // Keep the preview URL even if upload fails
+      }
+    } else {
+      // If no file selected, clear the image
+      setFormData(prev => ({
+        ...prev,
+        image: '',
+        imagePath: '',
+        selectedFile: null
+      }));
+    }
+  };
+
+  const categories = [...new Set(products.map(p => p.category_name || p.category))].filter(Boolean);
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
+    const productCategory = product.category_name || product.category;
+    const matchesCategory = !categoryFilter || productCategory === categoryFilter;
     return matchesSearch && matchesCategory;
   });
 
@@ -361,7 +461,9 @@ const ProductManagement = () => {
       price: '',
       category: '',
       stock: '',
-      image: ''
+      image: '',
+      imagePath: '',
+      selectedFile: null
     });
     setShowModal(true);
   };
@@ -371,9 +473,10 @@ const ProductManagement = () => {
     setFormData({
       name: product.name,
       price: product.price.toString(),
-      category: product.category,
-      stock: product.stock?.toString() || '',
-      image: product.image || ''
+      category: product.category_name || product.category || '',
+      stock: product.stock_quantity?.toString() || '',
+      image: product.image_path ? `http://localhost:5000${product.image_path}` : '',
+      imagePath: product.image_path || ''
     });
     setShowModal(true);
   };
@@ -383,14 +486,20 @@ const ProductManagement = () => {
     setShowDeleteModal(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deletingProduct) {
       const confirmInput = document.getElementById('deleteConfirm');
       if (confirmInput && confirmInput.value === deletingProduct.name) {
-        deleteProduct(deletingProduct.id);
-        alert('Product deleted successfully!');
-        setShowDeleteModal(false);
-        setDeletingProduct(null);
+        try {
+          await productsAPI.deleteProduct(deletingProduct.id);
+          alert('Product deleted successfully!');
+          await fetchProducts(); // Refresh products list
+          setShowDeleteModal(false);
+          setDeletingProduct(null);
+        } catch (error) {
+          console.error('Error deleting product:', error);
+          alert('Failed to delete product');
+        }
       } else {
         alert('Please type the product name exactly to confirm deletion.');
       }
@@ -402,8 +511,8 @@ const ProductManagement = () => {
     setDeletingProduct(null);
   };
 
-  const handleSaveProduct = () => {
-    if (!formData.name || !formData.price || !formData.category) {
+  const handleSaveProduct = async () => {
+    if (!formData.name || !formData.price) {
       alert('Please fill in all required fields');
       return;
     }
@@ -412,29 +521,53 @@ const ProductManagement = () => {
       name: formData.name,
       price: parseFloat(formData.price),
       category: formData.category,
-      stock: parseInt(formData.stock) || 0,
-      emoji: formData.emoji
+      stock_quantity: parseInt(formData.stock) || 0,
+      image_url: formData.imagePath || formData.image || null
     };
 
-    if (editingProduct) {
-      updateProduct(editingProduct.id, productData);
-      alert('Product updated successfully!');
-    } else {
-      addProduct(productData);
-      alert('Product added successfully!');
+    try {
+      if (editingProduct) {
+        const response = await productsAPI.updateProduct(editingProduct.id, productData);
+        alert('Product updated successfully!');
+        
+        // Update the product in the local state immediately using API response (ensures correct image_path)
+        const updated = response.data.product;
+        setProducts(prevProducts => prevProducts.map(p => p.id === updated.id ? updated : p));
+      } else {
+        const response = await productsAPI.createProduct(productData);
+        alert('Product added successfully!');
+        
+        // Add the new product to the local state immediately
+        setProducts(prevProducts => [...prevProducts, response.data.product]);
+      }
+      
+      // Also refresh from server to ensure data consistency
+      setTimeout(async () => {
+        await fetchProducts();
+      }, 100);
+      
+      setShowModal(false);
+      setFormData({
+        name: '',
+        price: '',
+        category: '',
+        stock: '',
+        image: '',
+        imagePath: '',
+        selectedFile: null
+      });
+    } catch (error) {
+      console.error('Error saving product:', error);
+      alert('Failed to save product');
     }
-
-    setShowModal(false);
-    setFormData({
-      name: '',
-      price: '',
-      category: '',
-      stock: '',
-      emoji: '🍞'
-    });
   };
 
   const handleCloseModal = () => {
+    // Clean up object URL to prevent memory leaks
+    if (formData.image && formData.image.startsWith('blob:')) {
+      URL.revokeObjectURL(formData.image);
+    }
+    
     setShowModal(false);
     setEditingProduct(null);
     setFormData({
@@ -442,7 +575,9 @@ const ProductManagement = () => {
       price: '',
       category: '',
       stock: '',
-      emoji: '🍞'
+      image: '',
+      imagePath: '',
+      selectedFile: null
     });
   };
 
@@ -467,33 +602,61 @@ const ProductManagement = () => {
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
         >
+          <option value="">Select Category</option>
           {categories.map(category => (
             <option key={category} value={category}>
-              {category === 'all' ? 'All Categories' : category}
+              {category}
             </option>
           ))}
         </FilterSelect>
       </FiltersSection>
 
-      <ProductsGrid>
-        {filteredProducts.map((product) => (
-          <ProductCard key={product.id}>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+          Loading products...
+        </div>
+      ) : (
+        <ProductsGrid>
+          {filteredProducts.map((product) => (
+            <ProductCard key={product.id}>
             <ProductImage>
-              <img 
-                src={product.image} 
-                alt={product.name}
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.nextSibling.style.display = 'flex';
-                }}
-              />
-              <div style={{ 
-                display: 'none', 
-                fontSize: '24px',
-                color: '#d97706'
-              }}>
-                🍞
-              </div>
+              {product.image_path ? (
+                <img 
+                  src={product.image_path.startsWith('http') ? product.image_path : `http://localhost:5000${product.image_path}?v=${Date.now()}&t=${Math.random()}`}
+                  alt={product.name}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    borderRadius: '8px'
+                  }}
+                  onError={(e) => {
+                    console.log('❌ Image failed to load:', e.target.src);
+                    e.target.style.display = 'none';
+                  }}
+                  onLoad={() => {
+                    console.log('✅ Image loaded successfully:', product.name);
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '12px',
+                  color: '#64748b',
+                  fontSize: '24px',
+                  textAlign: 'center',
+                  border: '2px dashed #cbd5e1'
+                }}>
+                  <div style={{ fontSize: '28px', marginBottom: '4px' }}>📷</div>
+                  <div style={{ fontSize: '10px', fontWeight: '500' }}>No Image</div>
+                </div>
+              )}
             </ProductImage>
             
             <ProductName>{product.name}</ProductName>
@@ -502,8 +665,8 @@ const ProductManagement = () => {
               <ProductPrice>${product.price.toFixed(2)}</ProductPrice>
             </ProductHeader>
             
-            <ProductCategory>{product.category}</ProductCategory>
-            <ProductStock>Stock: {product.stock || 'N/A'} units</ProductStock>
+            <ProductCategory>{product.category_name || product.category || 'No Category'}</ProductCategory>
+            <ProductStock>Stock: {product.stock_quantity || product.stock || 'N/A'} units</ProductStock>
             
             <ProductActions>
               <EditButton onClick={() => handleEditProduct(product)}>
@@ -516,8 +679,9 @@ const ProductManagement = () => {
               </DeleteButton>
             </ProductActions>
           </ProductCard>
-        ))}
-      </ProductsGrid>
+          ))}
+        </ProductsGrid>
+      )}
 
       {showModal && (
         <Modal>
@@ -587,16 +751,78 @@ const ProductManagement = () => {
             </FormRow>
 
             <FormGroup>
-              <Label>Product Image URL</Label>
+              <Label>Product Image</Label>
               <Input
-                type="url"
-                value={formData.image}
-                onChange={(e) => setFormData({...formData, image: e.target.value})}
-                placeholder="https://example.com/product-image.jpg"
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleImageSelect(e)}
               />
               <small style={{ color: '#6b7280', fontSize: '12px' }}>
-                Enter a URL for the product image
+                Select an image file (max 5MB)
               </small>
+              {(formData.image || formData.imagePath || formData.selectedFile) && (
+                <div style={{ marginTop: '10px' }}>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '5px' }}>
+                    Image Preview:
+                  </div>
+                  <img 
+                    src={formData.image || (formData.imagePath ? `http://localhost:5000${formData.imagePath}` : '')} 
+                    alt="Preview" 
+                    style={{ 
+                      width: '120px', 
+                      height: '120px', 
+                      objectFit: 'cover', 
+                      borderRadius: '8px',
+                      border: '2px solid #d97706',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                  {formData.selectedFile && (
+                    <div style={{ fontSize: '10px', color: '#6b7280', marginTop: '5px' }}>
+                      Selected: {formData.selectedFile.name}
+                    </div>
+                  )}
+                  {!formData.selectedFile && formData.imagePath && (
+                    <div style={{ fontSize: '10px', color: '#6b7280', marginTop: '5px', wordBreak: 'break-all' }}>
+                      Current: {formData.imagePath}
+                    </div>
+                  )}
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Clean up object URL
+                        if (formData.image && formData.image.startsWith('blob:')) {
+                          URL.revokeObjectURL(formData.image);
+                        }
+                        setFormData(prev => ({
+                          ...prev,
+                          image: '',
+                          imagePath: '',
+                          selectedFile: null
+                        }));
+                        // Clear the file input
+                        const fileInput = document.querySelector('input[type="file"]');
+                        if (fileInput) fileInput.value = '';
+                      }}
+                      style={{
+                        background: '#ef4444',
+                        color: 'white',
+                        border: 'none',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Remove Image
+                    </button>
+                  </div>
+                </div>
+              )}
             </FormGroup>
 
             <ModalActions>

@@ -7,9 +7,7 @@ import {
   FiShoppingCart,
   FiTrendingUp, 
   FiBarChart2, 
-  FiSettings,
-  FiPackage,
-  FiUsers
+  FiPackage
 } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 
@@ -100,9 +98,7 @@ const Sidebar = () => {
       return [
         { path: '/admin/dashboard', icon: FiHome, label: 'Dashboard', permission: 'view_dashboard' },
         { path: '/admin/products', icon: FiPackage, label: 'Products', permission: 'manage_products' },
-        { path: '/admin/users', icon: FiUsers, label: 'Users', permission: 'manage_settings' },
-        { path: '/admin/reports', icon: FiBarChart2, label: 'Reports', permission: 'view_reports' },
-        { path: '/admin/settings', icon: FiSettings, label: 'Settings', permission: 'manage_settings' }
+        { path: '/admin/reports', icon: FiBarChart2, label: 'Reports', permission: 'view_reports' }
       ];
     } else if (role === 'cashier') {
       return [

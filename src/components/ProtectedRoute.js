@@ -25,28 +25,8 @@ const ProtectedRoute = ({ children, permission }) => {
   }
 
   if (permission && !hasPermission(permission)) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        flexDirection: 'column',
-        gap: '20px',
-        background: 'linear-gradient(135deg, #fef7ed 0%, #fef3c7 100%)'
-      }}>
-        <div style={{
-          background: 'white',
-          padding: '40px',
-          borderRadius: '12px',
-          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-          textAlign: 'center',
-          maxWidth: '400px'
-        }}>
-        
-        </div>
-      </div>
-    );
+    const defaultRoute = role === 'admin' ? '/admin/dashboard' : '/cashier/billing';
+    return <Navigate to={defaultRoute} replace />;
   }
 
   return children;

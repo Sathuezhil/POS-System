@@ -1,7 +1,32 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { FiTrendingUp, FiDollarSign, FiPackage, FiUsers, FiShoppingCart, FiBarChart3 } from 'react-icons/fi';
-import { usePOS } from '../../context/POSContext';
+import { salesAPI, productsAPI } from '../../services/api';
+import { Line, Doughnut } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  ArcElement,
+  Title as ChartTitle,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  ArcElement,
+  ChartTitle,
+  Tooltip,
+  Legend,
+  Filler
+);
 
 const DashboardContainer = styled.div`
   padding: 24px;
@@ -102,22 +127,16 @@ const ChartCard = styled.div`
   border: 1px solid #e2e8f0;
 `;
 
-const ChartTitle = styled.h3`
+const ChartTitleStyled = styled.h3`
   font-size: 18px;
   font-weight: 600;
   color: #1e293b;
   margin-bottom: 20px;
 `;
 
-const ChartPlaceholder = styled.div`
+const ChartContainer = styled.div`
   height: 200px;
-  background: #f8fafc;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #64748b;
-  font-size: 14px;
+  position: relative;
 `;
 
 const RecentSales = styled.div`
@@ -155,7 +174,44 @@ const TableCell = styled.td`
 `;
 
 const Dashboard = () => {
-  const { sales, products } = usePOS();
+  const [sales, setSales] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchData();
+    
+    // Auto-refresh every 5 seconds
+    const interval = setInterval(() => {
+      fetchData();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      const [salesResponse, productsResponse] = await Promise.all([
+        salesAPI.getSales({ page: 1, limit: 1000 }),
+        productsAPI.getProducts()
+      ]);
+
+      const salesData = salesResponse.data.sales.map(sale => ({
+        id: sale.id,
+        sale_number: sale.sale_number,
+        timestamp: sale.created_at,
+        total: sale.total_amount,
+        customer: sale.customer_name || 'Walk-in'
+      }));
+
+      setSales(salesData);
+      setProducts(productsResponse.data.products || []);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const today = new Date().toDateString();
   const todaySales = sales.filter(sale => new Date(sale.timestamp).toDateString() === today);
@@ -195,6 +251,97 @@ const Dashboard = () => {
     }
   ];
 
+  // Prepare data for sales trend chart (last 7 days)
+  const getSalesTrendData = () => {
+    const dates = [];
+    const revenues = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toLocaleDateString('en-US', { weekday: 'short' });
+      dates.push(dateStr);
+      
+      const daySales = sales.filter(sale => {
+        const saleDate = new Date(sale.timestamp);
+        return saleDate.toDateString() === date.toDateString();
+      });
+      
+      const dayRevenue = daySales.reduce((sum, sale) => sum + sale.total, 0);
+      revenues.push(dayRevenue);
+    }
+    
+    return {
+      labels: dates,
+      datasets: [{
+        label: 'Revenue',
+        data: revenues,
+        borderColor: '#d97706',
+        backgroundColor: 'rgba(217, 119, 6, 0.1)',
+        tension: 0.4,
+        fill: true
+      }]
+    };
+  };
+
+  // Prepare data for category chart
+  const getCategoryData = () => {
+    const categoryCount = {};
+    
+    products.forEach(product => {
+      const category = product.category_name || product.category || 'Uncategorized';
+      categoryCount[category] = (categoryCount[category] || 0) + 1;
+    });
+    
+    const categories = Object.keys(categoryCount);
+    const counts = Object.values(categoryCount);
+    const colors = ['#059669', '#3b82f6', '#d97706', '#8b5cf6', '#ec4899', '#10b981'];
+    
+    return {
+      labels: categories,
+      datasets: [{
+        label: 'Products',
+        data: counts,
+        backgroundColor: colors.slice(0, categories.length),
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      }]
+    };
+  };
+
+  const salesTrendData = getSalesTrendData();
+  const categoryData = getCategoryData();
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          callback: function(value) {
+            return '$' + value.toFixed(0);
+          }
+        }
+      }
+    }
+  };
+
+  const doughnutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'right'
+      }
+    }
+  };
+
   return (
     <DashboardContainer>
       <Header>
@@ -222,18 +369,22 @@ const Dashboard = () => {
 
       <ChartsGrid>
         <ChartCard>
-          <ChartTitle>Sales Trend</ChartTitle>
-          <ChartPlaceholder>Sales Chart - Last 7 Days</ChartPlaceholder>
+          <ChartTitleStyled>Sales Trend - Last 7 Days</ChartTitleStyled>
+          <ChartContainer>
+            <Line data={salesTrendData} options={chartOptions} />
+          </ChartContainer>
         </ChartCard>
         
         <ChartCard>
-          <ChartTitle>Top Categories</ChartTitle>
-          <ChartPlaceholder>Category Chart</ChartPlaceholder>
+          <ChartTitleStyled>Top Categories</ChartTitleStyled>
+          <ChartContainer>
+            <Doughnut data={categoryData} options={doughnutOptions} />
+          </ChartContainer>
         </ChartCard>
       </ChartsGrid>
 
       <RecentSales>
-        <ChartTitle>Recent Sales</ChartTitle>
+        <ChartTitleStyled>Recent Sales</ChartTitleStyled>
         <SalesTable>
           <thead>
             <tr>
